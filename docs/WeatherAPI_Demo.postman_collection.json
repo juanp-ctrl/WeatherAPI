@@ -1,0 +1,1257 @@
+{
+  "info": {
+    "_postman_id": "a3f7c2e1-4b8d-4e9a-b1d6-7f3c2e8a5b04",
+    "name": "Weather Middleware Platform — Demo (Medellín)",
+    "description": "Colección de demo para el Weather Middleware Platform.\n\n**Flujo recomendado para la demo:**\n1. Health checks en ambos servicios\n2. Crear ubicación (Medellín)\n3. Disparar ingesta manual\n4. Listar observaciones crudas\n5. Crear reglas de alerta\n6. Disparar procesamiento\n7. Ver observaciones procesadas\n8. Ver alertas generadas\n9. Acknowledge de una alerta\n\n**Variables de entorno:**\n- `ingestion_url` → http://localhost:8000\n- `processing_url` → http://localhost:8001\n- `api_key` → local-dev-key",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "ingestion_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "processing_url",
+      "value": "http://localhost:8001",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "local-dev-key",
+      "type": "string"
+    },
+    {
+      "key": "location_id",
+      "value": "",
+      "type": "string",
+      "description": "Se autocompleta al crear la ubicación de Medellín"
+    },
+    {
+      "key": "observation_id",
+      "value": "",
+      "type": "string",
+      "description": "Se autocompleta al listar observaciones"
+    },
+    {
+      "key": "rule_id_temp",
+      "value": "",
+      "type": "string",
+      "description": "Se autocompleta al crear la regla de temperatura"
+    },
+    {
+      "key": "rule_id_humidity",
+      "value": "",
+      "type": "string",
+      "description": "Se autocompleta al crear la regla de humedad"
+    },
+    {
+      "key": "processed_obs_id",
+      "value": "",
+      "type": "string",
+      "description": "Se autocompleta al listar observaciones procesadas"
+    },
+    {
+      "key": "alert_id",
+      "value": "",
+      "type": "string",
+      "description": "Se autocompleta al listar alertas"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 · Health Checks",
+      "description": "Verifica que ambos servicios están activos. Siempre empezar aquí.",
+      "item": [
+        {
+          "name": "Ingestion Service — Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ingestion_url}}/health",
+              "host": ["{{ingestion_url}}"],
+              "path": ["health"]
+            },
+            "description": "Verifica que el ingestion-service y su conexión a Postgres están OK."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Ingestion service is healthy', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql('ok');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Processing Service — Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{processing_url}}/health",
+              "host": ["{{processing_url}}"],
+              "path": ["health"]
+            },
+            "description": "Verifica que el processing-service y su conexión a Postgres están OK."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Processing service is healthy', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql('ok');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 · Locations (Ingestion Service)",
+      "description": "CRUD completo de ubicaciones. Creamos Medellín como ubicación principal y otras ciudades colombianas para enriquecer la demo.",
+      "item": [
+        {
+          "name": "Listar ubicaciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations?active_only=false",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations"],
+              "query": [
+                {
+                  "key": "active_only",
+                  "value": "false",
+                  "description": "true para ver solo ubicaciones activas"
+                }
+              ]
+            },
+            "description": "Lista todas las ubicaciones registradas. No requiere API key."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear ubicación — Medellín ⭐",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Medellín, Colombia\",\n  \"latitude\": 6.2442,\n  \"longitude\": -75.5812,\n  \"timezone\": \"America/Bogota\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations"]
+            },
+            "description": "Registra Medellín como ubicación de monitoreo.\n\nCoordinadas reales: 6.2442° N, 75.5812° W\nZona horaria: America/Bogota (UTC-5)\n\n**Requiere X-API-Key.** El ID se guarda automáticamente en la variable `location_id`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Location created with 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "    pm.collectionVariables.set('location_id', json.id);",
+                  "    console.log('✅ location_id guardado:', json.id);",
+                  "}",
+                  "",
+                  "pm.test('Response has required fields', function () {",
+                  "    pm.expect(json).to.have.property('id');",
+                  "    pm.expect(json).to.have.property('name');",
+                  "    pm.expect(json.latitude).to.eql(6.2442);",
+                  "    pm.expect(json.longitude).to.eql(-75.5812);",
+                  "    pm.expect(json.is_active).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear ubicación — Bogotá",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bogotá, Colombia\",\n  \"latitude\": 4.7110,\n  \"longitude\": -74.0721,\n  \"timezone\": \"America/Bogota\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations"]
+            },
+            "description": "Registra Bogotá como segunda ubicación de monitoreo. Útil para demostrar que el scheduler ingesta múltiples ciudades en paralelo."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear ubicación — Cartagena",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Cartagena, Colombia\",\n  \"latitude\": 10.3910,\n  \"longitude\": -75.4794,\n  \"timezone\": \"America/Bogota\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations"]
+            },
+            "description": "Registra Cartagena — ciudad costera con temperaturas más altas, útil para disparar alertas de temperatura."
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener ubicación por ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations/{{location_id}}",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations", "{{location_id}}"]
+            },
+            "description": "Obtiene el detalle de la ubicación de Medellín. Usa la variable `location_id` capturada en el POST."
+          },
+          "response": []
+        },
+        {
+          "name": "Actualizar ubicación — cambiar nombre",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Medellín (Ciudad de la Eterna Primavera)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations/{{location_id}}",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations", "{{location_id}}"]
+            },
+            "description": "Actualización parcial (PATCH semántico via PUT). Solo se envían los campos que cambian — los demás se mantienen. Útil para demostrar el `LocationUpdateDTO` con campos opcionales."
+          },
+          "response": []
+        },
+        {
+          "name": "Desactivar ubicación (soft delete)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations/{{location_id}}",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations", "{{location_id}}"]
+            },
+            "description": "⚠️ Soft delete — no elimina el registro, solo pone `is_active = false`. Las observaciones históricas permanecen intactas y la FK de `raw_observations` no se rompe (ondelete=RESTRICT). Retorna 204 No Content.\n\n**Nota para la demo:** ejecutar solo al final para no perder los datos de Medellín."
+          },
+          "response": []
+        },
+        {
+          "name": "Listar ubicaciones activas solamente",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations?active_only=true",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations"],
+              "query": [
+                {
+                  "key": "active_only",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Útil después del soft delete para demostrar que Medellín ya no aparece en la lista de activas."
+          },
+          "response": []
+        },
+        {
+          "name": "[Error] Crear ubicación sin API key → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Cali, Colombia\",\n  \"latitude\": 3.4516,\n  \"longitude\": -76.5320,\n  \"timezone\": \"America/Bogota\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations"]
+            },
+            "description": "Demuestra que los endpoints de escritura están protegidos. Sin el header `X-API-Key` debe retornar **401 Unauthorized**."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rejects request without API key (401)', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Error] Crear ubicación con coordenadas inválidas → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ubicación inválida\",\n  \"latitude\": 999.0,\n  \"longitude\": -75.5812,\n  \"timezone\": \"America/Bogota\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/locations",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "locations"]
+            },
+            "description": "Demuestra la validación de Pydantic. La latitud debe estar en [-90, 90]. FastAPI retorna automáticamente **422 Unprocessable Entity** con el detalle del campo que falló."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Validates latitude range (422)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.detail[0].loc).to.include('latitude');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 · Observations — Ingesta (Ingestion Service)",
+      "description": "Ingesta manual y consulta de observaciones crudas desde Open-Meteo.",
+      "item": [
+        {
+          "name": "Disparar ingesta manual ⭐",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/observations/ingest",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "observations", "ingest"]
+            },
+            "description": "Dispara el use case de ingesta inmediatamente, sin esperar el scheduler (que corre cada 900s por defecto).\n\nHace un fetch real a la API de Open-Meteo para todas las ubicaciones activas y persiste las observaciones. El upsert con `on_conflict_do_nothing` garantiza idempotencia — si ya existe una observación para ese `(location_id, observed_at)` no se duplica.\n\nRetorna: `{ locations_processed, observations_stored, errors }`"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Ingestion returns 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "console.log('📥 Ingesta:', json.observations_stored, 'observaciones en', json.locations_processed, 'ubicaciones');",
+                  "",
+                  "pm.test('No errors during ingestion', function () {",
+                  "    pm.expect(json.errors).to.have.lengthOf(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar observaciones de Medellín",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/observations?location_id={{location_id}}&limit=20&offset=0",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "observations"],
+              "query": [
+                {
+                  "key": "location_id",
+                  "value": "{{location_id}}",
+                  "description": "Filtra por Medellín"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Lista las observaciones crudas de Medellín con paginación.\n\nResponde con `{ items, total, limit, offset }`. Cada item contiene temperatura, humedad, viento, precipitación y código de tiempo de Open-Meteo."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Returns paginated observations', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('items');",
+                  "    pm.expect(json).to.have.property('total');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.items && json.items.length > 0) {",
+                  "    pm.collectionVariables.set('observation_id', json.items[0].id);",
+                  "    console.log('✅ observation_id guardado:', json.items[0].id);",
+                  "    console.log('🌡️  Temperatura Medellín:', json.items[0].temperature_c, '°C');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar todas las observaciones (sin filtro)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/observations?limit=50&offset=0",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "observations"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Ve todas las observaciones de todas las ciudades. Útil para mostrar que el scheduler procesa múltiples ubicaciones."
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener observación por ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/observations/{{observation_id}}",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "observations", "{{observation_id}}"]
+            },
+            "description": "Obtiene el detalle de una observación específica. La variable `observation_id` se capturó automáticamente en el request anterior."
+          },
+          "response": []
+        },
+        {
+          "name": "Disparar ingesta 2 veces — idempotencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{ingestion_url}}/api/v1/observations/ingest",
+              "host": ["{{ingestion_url}}"],
+              "path": ["api", "v1", "observations", "ingest"]
+            },
+            "description": "Ejecutar este request inmediatamente después del anterior.\n\n**Punto clave para la demo:** `observations_stored` debe ser **0** porque todas las observaciones ya existen. El `INSERT ... ON CONFLICT DO NOTHING` de PostgreSQL garantiza idempotencia sin race conditions."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Idempotent: 0 observations stored on second call', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.observations_stored).to.eql(0);",
+                  "    console.log('✅ Idempotencia confirmada: observations_stored =', json.observations_stored);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 · Rules — Reglas de Alerta (Processing Service)",
+      "description": "CRUD de reglas de procesamiento. Las reglas definen qué métricas monitorear y qué severidad asignar cuando se supera un umbral.",
+      "item": [
+        {
+          "name": "Listar reglas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/rules",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "rules"]
+            },
+            "description": "Lista todas las reglas de procesamiento (activas e inactivas)."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear regla — Temperatura alta ⭐",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metric\": \"temperature_c\",\n  \"operator\": \">\",\n  \"threshold\": 28.0,\n  \"severity\": \"MEDIUM\",\n  \"alert_type\": \"HIGH_TEMPERATURE\",\n  \"message_template\": \"Temperatura en Medellín: {value}°C supera el umbral de {threshold}°C\",\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{processing_url}}/api/v1/rules",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "rules"]
+            },
+            "description": "Crea una regla que genera alerta MEDIUM cuando la temperatura supera los 28°C.\n\nMedellín tiene temperatura promedio de 22-27°C, pero días cálidos pueden superar 28°C, lo que hace esta regla realista para disparar alertas en la demo.\n\n`metric` puede ser: `temperature_c`, `humidity_pct`, `wind_speed_kmh`, `precipitation_mm`, `heat_index_c`, `wind_chill_c`, `feels_like_c`\n\n`operator` válidos: `>`, `>=`, `<`, `<=`, `==`\n\n`severity` válidos: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rule created with 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "    pm.collectionVariables.set('rule_id_temp', json.id);",
+                  "    console.log('✅ rule_id_temp guardado:', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear regla — Temperatura crítica",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metric\": \"temperature_c\",\n  \"operator\": \">=\",\n  \"threshold\": 35.0,\n  \"severity\": \"CRITICAL\",\n  \"alert_type\": \"EXTREME_HEAT\",\n  \"message_template\": \"⚠️ Calor extremo: temperatura de {value}°C supera nivel crítico de {threshold}°C\",\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{processing_url}}/api/v1/rules",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "rules"]
+            },
+            "description": "Regla CRITICAL para temperaturas extremas. Múltiples reglas pueden aplicar a la misma observación — el `severity_score` acumula todas las coincidencias."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear regla — Humedad alta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metric\": \"humidity_pct\",\n  \"operator\": \">=\",\n  \"threshold\": 85.0,\n  \"severity\": \"LOW\",\n  \"alert_type\": \"HIGH_HUMIDITY\",\n  \"message_template\": \"Humedad relativa elevada: {value}% (umbral: {threshold}%)\",\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{processing_url}}/api/v1/rules",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "rules"]
+            },
+            "description": "Medellín puede tener humedad de 80-90% en temporada de lluvias (abril-mayo, octubre-noviembre)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "    pm.collectionVariables.set('rule_id_humidity', json.id);",
+                  "    console.log('✅ rule_id_humidity guardado:', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear regla — Viento fuerte",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metric\": \"wind_speed_kmh\",\n  \"operator\": \">=\",\n  \"threshold\": 40.0,\n  \"severity\": \"HIGH\",\n  \"alert_type\": \"STRONG_WIND\",\n  \"message_template\": \"Viento fuerte detectado: {value} km/h (umbral: {threshold} km/h)\",\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{processing_url}}/api/v1/rules",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "rules"]
+            },
+            "description": "Alerta HIGH para vientos fuertes (≥ 40 km/h)."
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener regla por ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/rules/{{rule_id_temp}}",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "rules", "{{rule_id_temp}}"]
+            },
+            "description": "Obtiene el detalle de la regla de temperatura."
+          },
+          "response": []
+        },
+        {
+          "name": "Actualizar regla — bajar umbral",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"threshold\": 26.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{processing_url}}/api/v1/rules/{{rule_id_temp}}",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "rules", "{{rule_id_temp}}"]
+            },
+            "description": "Baja el umbral de temperatura a 26°C para que sea más fácil disparar una alerta durante la demo (Medellín raramente supera 28°C)."
+          },
+          "response": []
+        },
+        {
+          "name": "Desactivar regla",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{processing_url}}/api/v1/rules/{{rule_id_humidity}}",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "rules", "{{rule_id_humidity}}"]
+            },
+            "description": "Desactiva la regla de humedad. El motor de reglas solo evalúa reglas con `is_active = true`."
+          },
+          "response": []
+        },
+        {
+          "name": "[Error] Crear regla con operador inválido → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metric\": \"temperature_c\",\n  \"operator\": \"!=\",\n  \"threshold\": 30.0,\n  \"severity\": \"HIGH\",\n  \"alert_type\": \"TEST\",\n  \"message_template\": \"Test: {value} != {threshold}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{processing_url}}/api/v1/rules",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "rules"]
+            },
+            "description": "El operador `!=` no es válido. Pydantic valida con `pattern=r\"^(>|>=|<|<=|==)$\"` y retorna 422 con el detalle exacto del campo fallido."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rejects invalid operator (422)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 · Process & Processed Observations (Processing Service)",
+      "description": "Dispara el ciclo de procesamiento y consulta las observaciones enriquecidas con métricas calculadas.",
+      "item": [
+        {
+          "name": "Disparar procesamiento manual ⭐",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/process",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "process"]
+            },
+            "description": "Ejecuta el `ProcessObservationsUseCase` inmediatamente:\n\n1. Lee el **watermark** para saber desde cuándo buscar\n2. Llama al ingestion-service por HTTP para obtener observaciones nuevas\n3. Calcula métricas derivadas: heat index, wind chill, feels-like\n4. Evalúa las reglas activas contra cada observación\n5. Persiste `ProcessedObservation` + `Alert` por cada regla que se cumple\n6. Actualiza el watermark al `ingested_at` más reciente\n\nRetorna: `{ observations_processed, alerts_generated, errors }`"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Processing returns 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "console.log('⚙️  Procesamiento:', json.observations_processed, 'obs procesadas,', json.alerts_generated, 'alertas generadas');",
+                  "if (json.errors && json.errors.length > 0) {",
+                  "    console.warn('⚠️ Errores:', json.errors);",
+                  "}",
+                  "",
+                  "pm.test('No errors during processing', function () {",
+                  "    pm.expect(json.errors).to.have.lengthOf(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar observaciones procesadas de Medellín",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/processed?location_id={{location_id}}&limit=20&offset=0",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "processed"],
+              "query": [
+                {
+                  "key": "location_id",
+                  "value": "{{location_id}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Muestra las observaciones enriquecidas para Medellín.\n\nCada item incluye, además de los datos crudos:\n- `heat_index_c`: sensación térmica por calor + humedad\n- `wind_chill_c`: sensación por frío + viento\n- `feels_like_c`: temperatura de sensación final\n- `severity_score`: puntaje acumulado de todas las alertas disparadas"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.items && json.items.length > 0) {",
+                  "    pm.collectionVariables.set('processed_obs_id', json.items[0].id);",
+                  "    const obs = json.items[0];",
+                  "    console.log('🌡️  Temperatura:', obs.temperature_c, '°C');",
+                  "    console.log('🌡️  Feels like:', obs.feels_like_c, '°C');",
+                  "    console.log('⚠️  Severity score:', obs.severity_score);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Obtener observación procesada por ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/processed/{{processed_obs_id}}",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "processed", "{{processed_obs_id}}"]
+            },
+            "description": "Detalle completo de una observación procesada individual."
+          },
+          "response": []
+        },
+        {
+          "name": "Disparar procesamiento 2 veces — watermark",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/process",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "process"]
+            },
+            "description": "**Punto clave para la demo:** ejecutar justo después del anterior.\n\n`observations_processed` debe ser **0** porque el watermark ya apunta al timestamp más reciente. No se reprocesa ni se duplican alertas.\n\nEsto demuestra el patrón de **watermark** — equivalente a un offset de Kafka pero sobre Postgres."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Watermark prevents reprocessing', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.observations_processed).to.eql(0);",
+                  "    console.log('✅ Watermark funciona: observations_processed =', json.observations_processed);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 · Alerts (Processing Service)",
+      "description": "Consulta y gestión de alertas generadas por el motor de reglas.",
+      "item": [
+        {
+          "name": "Listar todas las alertas ⭐",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/alerts?acknowledged=false&limit=50&offset=0",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "alerts"],
+              "query": [
+                {
+                  "key": "severity",
+                  "value": "",
+                  "description": "Filtrar por severidad: LOW, MEDIUM, HIGH, CRITICAL",
+                  "disabled": true
+                },
+                {
+                  "key": "acknowledged",
+                  "value": "false",
+                  "description": "Solo alertas no reconocidas"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Lista alertas no reconocidas. El payload incluye el `message` ya renderizado con los valores reales (ej: 'Temperatura en Medellín: 29.3°C supera el umbral de 26°C')."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.items && json.items.length > 0) {",
+                  "    pm.collectionVariables.set('alert_id', json.items[0].id);",
+                  "    console.log('✅ alert_id guardado:', json.items[0].id);",
+                  "    console.log('🔔 Primera alerta:', json.items[0].alert_type, '|', json.items[0].severity);",
+                  "    console.log('📝 Mensaje:', json.items[0].message);",
+                  "} else {",
+                  "    console.log('ℹ️ Sin alertas. Asegúrate de haber bajado el umbral de temperatura y disparado el procesamiento.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar alertas MEDIUM",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/alerts?severity=MEDIUM&limit=50",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "alerts"],
+              "query": [
+                {
+                  "key": "severity",
+                  "value": "MEDIUM"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Filtra solo alertas de severidad MEDIUM — las de temperatura > 26°C."
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener alerta por ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/alerts/{{alert_id}}",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "alerts", "{{alert_id}}"]
+            },
+            "description": "Detalle de una alerta específica. Incluye `rule_id` y `processed_observation_id` para trazabilidad completa."
+          },
+          "response": []
+        },
+        {
+          "name": "Acknowledge alerta ⭐",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/alerts/{{alert_id}}/acknowledge",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "alerts", "{{alert_id}}", "acknowledge"]
+            },
+            "description": "Marca la alerta como reconocida. Pone `acknowledged = true` y registra el `acknowledged_at` timestamp.\n\nUsa PATCH porque es una transición de estado parcial — no es un reemplazo completo del recurso (que sería PUT)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Alert acknowledged', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.acknowledged).to.be.true;",
+                  "    pm.expect(json.acknowledged_at).to.not.be.null;",
+                  "    console.log('✅ Alerta reconocida en:', json.acknowledged_at);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verificar alerta reconocida",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{processing_url}}/api/v1/alerts?acknowledged=true&limit=10",
+              "host": ["{{processing_url}}"],
+              "path": ["api", "v1", "alerts"],
+              "query": [
+                {
+                  "key": "acknowledged",
+                  "value": "true"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Confirma que la alerta anterior ahora aparece en la lista de alertas reconocidas."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

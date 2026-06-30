@@ -12,9 +12,10 @@
 8. [Data Model Overview](#8-data-model-overview)
 9. [Deployment Architecture](#9-deployment-architecture)
 10. [Local Development](#10-local-development)
-11. [Future Improvements](#11-future-improvements)
-12. [Trade-offs](#12-trade-offs)
-13. [Glossary](#13-glossary)
+11. [Security Boundaries](#11-security-boundaries)
+12. [Future Improvements](#12-future-improvements)
+13. [Trade-offs](#13-trade-offs)
+14. [Glossary](#14-glossary)
 
 ---
 
@@ -153,9 +154,9 @@ graph TB
     end
 
     Ingestion -->|"GET /v1/forecast\n(scheduled poll)"| OpenMeteo
-    Ingestion -->|"INSERT raw observations\n(ingestion schema)"| DB
+    Ingestion -->|"SQLAlchemy 2 + asyncpg\n(ingestion schema)"| DB
     Processing -->|"GET /api/v1/observations\n(scheduled poll)"| Ingestion
-    Processing -->|"INSERT processed data + alerts\n(processing schema)"| DB
+    Processing -->|"SQLAlchemy 2 + asyncpg\n(processing schema)"| DB
     Client -->|"GET /api/v1/...\n(on demand)"| Ingestion
     Client -->|"GET /api/v1/...\n(on demand)"| Processing
 ```
@@ -165,7 +166,7 @@ graph TB
 1. **Open-Meteo** is the external data source. It provides a free, keyless JSON API returning current conditions and hourly forecasts for any coordinate pair.
 2. **ingestion-service** owns data acquisition. A background scheduler (configurable interval, default 15 minutes) polls Open-Meteo for each configured location, normalizes the JSON response into a canonical `RawObservation` entity, and persists it. It also exposes CRUD endpoints so the processing-service (or any client) can query raw data.
 3. **processing-service** owns data enrichment. Its own scheduler polls ingestion-service for unprocessed observations, runs business rules, computes derived metrics, generates alerts, and persists the results. It exposes endpoints for processed observations, alerts, and rule management.
-4. **Aurora PostgreSQL** stores all persistent state. The two services use separate schemas (`ingestion`, `processing`) within the same database cluster. This enforces logical boundaries without the operational overhead of two database instances.
+4. **Aurora PostgreSQL** stores all persistent state. Both services access the database through **SQLAlchemy 2** using the `asyncpg` driver, which provides native async support aligned with FastAPI's async request lifecycle. SQLAlchemy 2 was chosen over raw SQL for its unit-of-work pattern, migration support via Alembic, and the ability to map domain entities to relational tables without coupling the domain layer to SQL. The two services use separate schemas (`ingestion`, `processing`) within the same database cluster, enforcing logical boundaries without the operational overhead of two database instances.
 
 ---
 
@@ -184,7 +185,7 @@ graph TB
 | GET    | `/api/v1/locations/{id}`        | Get a single location                  |
 | PUT    | `/api/v1/locations/{id}`        | Update a location                      |
 | DELETE | `/api/v1/locations/{id}`        | Soft-delete a location                 |
-| GET    | `/api/v1/observations`          | List raw observations (filterable)     |
+| GET    | `/api/v1/observations`          | List raw observations (filterable, paginated: `limit`, `offset`, `since`) |
 | GET    | `/api/v1/observations/{id}`     | Get a single raw observation           |
 | POST   | `/api/v1/observations/ingest`   | Manually trigger ingestion             |
 | GET    | `/health`                       | Liveness check                         |
@@ -216,7 +217,8 @@ ingestion-service/
 
 **Key design decisions:**
 
-- Raw observations are **immutable**. Once inserted, they are never updated or deleted. This mirrors the auditability requirement of laboratory middleware where original instrument readings must be preserved verbatim.
+- Raw observations are **immutable**. Once inserted, they are never updated or deleted. This mirrors the auditability requirement of laboratory middleware where original instrument readings must be preserved verbatim. The `ON DELETE RESTRICT` foreign key on `location_id` enforces this at the database level -- a location cannot be hard-deleted while observations reference it.
+- Ingestion is **idempotent**. A UNIQUE constraint on `(location_id, observed_at)` prevents duplicate observations. The ingestion-service uses `INSERT ... ON CONFLICT DO NOTHING`, making it safe to retry failed cycles or trigger manual ingestion overlapping with automatic cycles.
 - The Open-Meteo client is an **adapter** behind a protocol (`WeatherDataSource`). Swapping to a different provider (e.g., OpenWeatherMap) means writing a new adapter, not changing business logic.
 - Ingestion runs on a **background task** inside the FastAPI process using a lightweight scheduler (e.g., `asyncio` loop with configurable interval). This avoids adding a separate worker process for a simple periodic job.
 
@@ -309,8 +311,8 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     Scheduler->>Processing: trigger processing cycle
-    Processing->>Ingestion: GET /api/v1/observations?status=unprocessed
-    Ingestion-->>Processing: list of raw observations
+    Processing->>Ingestion: GET /api/v1/observations?unprocessed=true&limit=100
+    Ingestion-->>Processing: paginated list of raw observations
 
     loop For each observation
         Processing->>DB: SELECT active rules FROM processing.processing_rules
@@ -335,7 +337,7 @@ sequenceDiagram
 2. **For each location**, the ingestion-service sends a GET request to Open-Meteo's `/v1/forecast` endpoint with the location's coordinates and the desired weather variables (`temperature_2m`, `relative_humidity_2m`, `wind_speed_10m`, `precipitation`, `weather_code`).
 3. The **Open-Meteo adapter** normalizes the JSON response into one or more `RawObservation` domain entities. The adapter isolates the rest of the system from Open-Meteo's response format.
 4. Each `RawObservation` is **persisted** to `ingestion.raw_observations`. The row is immutable and timestamped with both `observed_at` (from the API) and `ingested_at` (server clock).
-5. **Processing scheduler fires** (default: every 5 minutes, offset from ingestion). It calls the ingestion-service's REST API to fetch observations that have not yet been processed, using a query parameter or a watermark timestamp.
+5. **Processing scheduler fires** (default: every 5 minutes, offset from ingestion). It calls the ingestion-service's REST API to fetch observations that have not yet been processed. The ingestion-service identifies unprocessed observations using an **anti-join**: it returns raw observations whose `id` does not appear in a `processed_ids` set provided by the processing-service (or, more efficiently, the processing-service passes its latest `ingested_at` high-water mark and the ingestion-service returns observations newer than that timestamp). The response is **paginated** (`limit=100`); the processing-service loops through pages until the response is empty.
 6. **For each observation**, the processing-service loads active rules from `processing.processing_rules` and feeds the observation and rules into the **rule engine** -- a pure function that returns a severity score, derived metrics, and a (possibly empty) list of alerts.
 7. The **processed observation** (with severity score and derived metrics) is persisted to `processing.processed_observations`.
 8. Any **alerts** generated by the rule engine are persisted to `processing.alerts` with an `acknowledged = false` default.
@@ -365,7 +367,7 @@ sequenceDiagram
 | Column           | Type                     | Constraints                | Notes                                     |
 | ---------------- | ------------------------ | -------------------------- | ----------------------------------------- |
 | id               | UUID                     | PK, default gen_random_uuid() |                                        |
-| location_id      | UUID                     | FK -> locations.id, NOT NULL | Cascading reference                     |
+| location_id      | UUID                     | FK -> locations.id, NOT NULL, ON DELETE RESTRICT | Prevents location deletion while observations exist; preserves audit trail |
 | temperature_c    | DOUBLE PRECISION         |                            | Celsius, nullable if API omits            |
 | humidity_pct     | DOUBLE PRECISION         |                            | Relative humidity 0-100                   |
 | wind_speed_kmh   | DOUBLE PRECISION         |                            | km/h                                      |
@@ -374,10 +376,13 @@ sequenceDiagram
 | observed_at      | TIMESTAMP WITH TIME ZONE | NOT NULL                   | Timestamp from the weather API            |
 | ingested_at      | TIMESTAMP WITH TIME ZONE | NOT NULL, default now()    | Server-side timestamp at write time       |
 
+**Constraints:**
+- `uq_raw_observations_location_observed` UNIQUE on `(location_id, observed_at)` -- guarantees ingestion idempotency. If the scheduler fires twice for the same interval or a manual ingest overlaps with an automatic cycle, the duplicate insert is rejected. The ingestion-service uses `INSERT ... ON CONFLICT (location_id, observed_at) DO NOTHING` to handle this gracefully without raising application errors.
+
 **Indexes:**
 - `ix_raw_observations_location_id` on `location_id` -- accelerates per-location queries.
 - `ix_raw_observations_observed_at` on `observed_at` -- accelerates time-range filters.
-- `ix_raw_observations_ingested_at` on `ingested_at` -- used by the processing-service watermark query.
+- `ix_raw_observations_ingested_at` on `ingested_at` -- used by the processing-service anti-join query to find unprocessed observations.
 
 **Why UUIDs.** UUIDs as primary keys avoid exposing sequential IDs in REST responses (security best practice) and simplify future scenarios where observations might be generated by multiple ingestion instances without coordination. The trade-off is slightly larger index size compared to BIGINT, which is negligible at the expected data volumes.
 
@@ -428,7 +433,7 @@ sequenceDiagram
 | -------------- | ------------------------ | ----------------------------- | -------------------------------------------- |
 | id             | UUID                     | PK, default gen_random_uuid() |                                              |
 | metric         | VARCHAR(64)              | NOT NULL                      | Field name (e.g., "temperature_c")           |
-| operator       | VARCHAR(4)               | NOT NULL                      | One of: ">", ">=", "<", "<=", "=="           |
+| operator       | VARCHAR(4)               | NOT NULL, CHECK (operator IN ('>', '>=', '<', '<=', '==')) | Enforced at DB level |
 | threshold      | DOUBLE PRECISION         | NOT NULL                      | Value to compare against                     |
 | severity       | VARCHAR(16)              | NOT NULL                      | Alert severity if rule fires                 |
 | alert_type     | VARCHAR(64)              | NOT NULL                      | Alert type label                             |
@@ -438,6 +443,20 @@ sequenceDiagram
 | updated_at     | TIMESTAMP WITH TIME ZONE | NOT NULL, default now()       |                                              |
 
 **Why data-driven rules.** Hardcoding thresholds in application code requires a deployment for every threshold change. Storing rules in the database allows operators to adjust thresholds at runtime via the REST API. The trade-off is increased complexity in the rule engine, but the engine itself remains a pure function that is straightforward to test.
+
+### Data Lifecycle and Retention
+
+Raw observations are immutable but not immortal. Unbounded growth in the `raw_observations` table leads to index bloat, slower time-range queries, increased backup sizes, and higher Aurora storage costs ($0.10/GB/month). The following strategy balances auditability with operational sustainability:
+
+| Age             | State                  | Action                                                     |
+| --------------- | ---------------------- | ---------------------------------------------------------- |
+| 0 -- 90 days    | Hot                    | Live in PostgreSQL. Fully queryable via REST API.          |
+| 90 -- 365 days  | Warm                   | Remain in PostgreSQL but excluded from default API queries (filtered by `ingested_at`). |
+| > 365 days      | Cold                   | Exported to S3 (Parquet format) via a scheduled job. Deleted from PostgreSQL after confirmed export. |
+
+**Table partitioning.** The `raw_observations` table should be partitioned by month on `observed_at` using PostgreSQL's declarative partitioning. This enables efficient partition-level drops for cold data removal and improves query performance for time-range filters. Alembic migrations create new partitions ahead of time (e.g., 3 months in advance).
+
+**Processed observations and alerts** follow the same lifecycle with longer hot retention (180 days) since they are smaller in volume and more frequently queried.
 
 ---
 
@@ -514,6 +533,23 @@ The infrastructure is defined in a single CDK app (TypeScript) with logically se
 - The processing-service calls ingestion-service through the ALB's DNS name, not through direct task IPs. This decouples service discovery from ECS task lifecycle (tasks can be replaced without breaking the caller).
 - **Alternative:** AWS Cloud Map (service discovery). More elegant, but adds a dependency and configuration surface. The ALB approach is simpler and provides built-in health checking.
 
+### Estimated AWS Cost (Monthly)
+
+| Resource                                 | Configuration                     | Estimated Cost |
+| ---------------------------------------- | --------------------------------- | -------------- |
+| Aurora Serverless v2                     | 0.5 ACU min, 2 ACU max           | ~$43           |
+| Application Load Balancer                | 1 ALB + minimal LCU              | ~$18           |
+| Fargate (ingestion-service)              | 0.25 vCPU, 0.5 GB, always-on     | ~$8            |
+| Fargate (processing-service)             | 0.25 vCPU, 0.5 GB, always-on     | ~$8            |
+| ECR (image storage)                      | 2 repositories, ~200 MB each     | ~$1            |
+| CloudWatch Logs                          | ~1 GB/month ingestion + storage   | ~$2            |
+| **Total (no NAT Gateway)**               |                                   | **~$80/month** |
+
+This cost is significant for a portfolio project. To minimize expenses:
+- **Tear down** when not demonstrating: `cdk destroy` removes all resources.
+- **Scale Aurora to zero** (not supported by Serverless v2 minimum 0.5 ACU; consider pausing the cluster manually).
+- **Stop Fargate tasks** by setting desired count to 0 in the ECS console when idle.
+
 ### Environment Configuration
 
 All configuration is injected as environment variables into Fargate task definitions:
@@ -527,9 +563,13 @@ All configuration is injected as environment variables into Fargate task definit
 | `OPEN_METEO_BASE_URL`  | `https://api.open-meteo.com`              | ingestion-service   |
 | `INGESTION_INTERVAL_SECONDS` | `900`                               | ingestion-service   |
 | `PROCESSING_INTERVAL_SECONDS` | `300`                             | processing-service  |
+| `DATABASE_POOL_SIZE`   | `5`                                       | Both                |
+| `DATABASE_MAX_OVERFLOW`| `5`                                       | Both                |
 | `LOG_LEVEL`            | `INFO`                                    | Both                |
 
-Database credentials are stored in AWS Secrets Manager (created by the Aurora CDK construct) and injected into the task definition as secrets, not plain environment variables.
+**Connection pooling.** Each service configures an asyncpg connection pool via SQLAlchemy's `pool_size` and `max_overflow` parameters. With 2 services x 1 task x (5 + 5) connections = 20 max connections. Aurora Serverless v2 at 0.5 ACU supports ~45 connections, leaving headroom. If horizontal scaling increases task count, adopt **RDS Proxy** for connection multiplexing to avoid exhausting the connection limit.
+
+Database credentials are stored in AWS Secrets Manager (created by the Aurora CDK construct) and injected into the task definition as **separate secrets** (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`). The application constructs the connection URL at startup, preventing the full credential string from appearing in task definition metadata or CloudWatch logs.
 
 ---
 
@@ -582,7 +622,7 @@ services:
 
 ```bash
 # 1. Clone the repository
-git clone <repo-url> && cd weather-middleware-platform
+git clone https://github.com/juanp-ctrl/WeatherAPI.git && cd WeatherAPI
 
 # 2. Start all services
 docker compose up --build
@@ -640,9 +680,38 @@ Unit tests use in-memory repository fakes. Integration tests use a separate test
 
 ---
 
-## 11. Future Improvements
+## 11. Security Boundaries
 
-These are intentionally out of scope for the initial implementation. They are listed to show architectural awareness and to document natural evolution paths.
+### API Authentication
+
+All write endpoints (`POST`, `PUT`, `PATCH`, `DELETE`) require an API key passed via the `X-API-Key` header. A single FastAPI middleware validates the key against a value stored in an environment variable (`API_KEY`). In production, the key is stored in AWS Secrets Manager and injected into the task definition.
+
+Read endpoints (`GET`) are unauthenticated in the initial implementation to simplify portfolio evaluation. This is an explicit trade-off: a reviewer can explore the API without obtaining credentials, but the system should not be deployed to a public-facing environment without extending authentication to all endpoints.
+
+**Why API key and not JWT.** JWT-based authentication requires a token issuer (Cognito, Auth0, custom), token validation, and refresh flow -- infrastructure that is orthogonal to the core learning objectives. An API key is the minimum viable security gate that prevents unauthorized mutation of rules, locations, and alert acknowledgments.
+
+| Endpoint Category         | Auth Required | Rationale                                      |
+| ------------------------- | ------------- | ---------------------------------------------- |
+| `GET /health`             | No            | Load balancer health checks must pass unauthenticated |
+| `GET /api/v1/*`           | No            | Read-only access for portfolio reviewers       |
+| `POST /api/v1/*`          | Yes           | Prevents unauthorized data mutation            |
+| `PUT /api/v1/*`           | Yes           | Prevents unauthorized data mutation            |
+| `PATCH /api/v1/*`         | Yes           | Prevents unauthorized alert acknowledgment     |
+| `DELETE /api/v1/*`        | Yes           | Prevents unauthorized location deletion        |
+
+### Inter-Service Authentication
+
+The processing-service calls the ingestion-service through the internal ALB. In the initial implementation, inter-service calls are unauthenticated because the ALB is internal (not internet-facing) and security groups restrict access to the ECS security group. For production hardening, mutual TLS or a shared service token should be added.
+
+### Template Injection Prevention
+
+The `message_template` field in `processing_rules` uses `{value}` and `{threshold}` placeholders. The rule engine uses **explicit string replacement** (`str.replace("{value}", ...)`) rather than Python's `str.format()` to prevent format string injection attacks. Templates are validated on creation to ensure they contain only the allowed placeholders.
+
+---
+
+## 12. Future Improvements
+
+These are intentionally out of scope for the initial implementation but are listed to show architectural awareness and to document natural evolution paths.
 
 | Improvement                | What It Would Change                                                                                          | Why Deferred                                                    |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -651,12 +720,12 @@ These are intentionally out of scope for the initial implementation. They are li
 | **API Gateway**            | Place an API Gateway (Kong, AWS API Gateway) in front of both services for auth, rate limiting, and routing.  | Adds a component that is orthogonal to the core learning goals. Can be layered on without refactoring services.   |
 | **CI/CD pipeline**         | GitHub Actions: lint, test, build Docker images, push to ECR, deploy to ECS via CDK.                         | Planned as a second phase. The infrastructure supports it (ECR exists, CDK handles deploys).                      |
 | **Observability**          | Structured logging (JSON), distributed tracing (OpenTelemetry), Prometheus metrics, Grafana dashboards.       | stdout logging + CloudWatch is sufficient for MVP. OpenTelemetry can be instrumented incrementally.               |
-| **Authentication**         | API key or JWT-based authentication on all endpoints.                                                        | Not required for a portfolio demo. The architecture is ready for it (middleware layer in FastAPI).                 |
+| **Full Authentication**    | Extend API key auth to all endpoints, or migrate to JWT/OAuth2 with Cognito or Auth0.                        | API key on write endpoints is sufficient for initial deployment. Full auth can be layered on without refactoring. |
 | **Horizontal scaling**     | Multiple Fargate tasks per service behind the ALB with auto-scaling policies.                                 | Single task is sufficient for expected load. The stateless design means scaling is a configuration change, not a code change. |
 
 ---
 
-## 12. Trade-offs
+## 13. Trade-offs
 
 ### HTTP Polling vs. Event-Driven Communication
 
@@ -706,7 +775,7 @@ These are intentionally out of scope for the initial implementation. They are li
 
 ---
 
-## 13. Glossary
+## 14. Glossary
 
 | Term                     | Definition                                                                                              |
 | ------------------------ | ------------------------------------------------------------------------------------------------------- |

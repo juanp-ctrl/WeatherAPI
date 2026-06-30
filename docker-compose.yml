@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: weather
+      POSTGRES_PASSWORD: weather
+      POSTGRES_DB: weather_middleware
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weather -d weather_middleware"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ingestion-service:
+    build: ./ingestion-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://weather:weather@postgres:5432/weather_middleware
+      INGESTION_SCHEMA: ingestion
+      OPEN_METEO_BASE_URL: https://api.open-meteo.com
+      INGESTION_INTERVAL_SECONDS: "900"
+      DATABASE_POOL_SIZE: "5"
+      DATABASE_MAX_OVERFLOW: "5"
+      LOG_LEVEL: DEBUG
+      API_KEY: local-dev-key
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  processing-service:
+    build: ./processing-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://weather:weather@postgres:5432/weather_middleware
+      PROCESSING_SCHEMA: processing
+      INGESTION_SERVICE_URL: http://ingestion-service:8000
+      PROCESSING_INTERVAL_SECONDS: "300"
+      DATABASE_POOL_SIZE: "5"
+      DATABASE_MAX_OVERFLOW: "5"
+      LOG_LEVEL: DEBUG
+      API_KEY: local-dev-key
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingestion-service:
+        condition: service_started
+
+volumes:
+  pgdata:
