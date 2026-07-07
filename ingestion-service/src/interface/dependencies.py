@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security.api_key import APIKeyHeader
@@ -25,7 +26,9 @@ from ..infrastructure.persistence.raw_observation_repository import (
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def require_api_key(api_key: str | None = Security(_api_key_header)) -> None:
+async def require_api_key(
+    api_key: Annotated[str | None, Security(_api_key_header)],
+) -> None:
     settings = get_settings()
     if not api_key or api_key != settings.api_key:
         raise HTTPException(
@@ -39,56 +42,84 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-def get_location_repo(session: AsyncSession = Depends(get_session)):
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+def get_location_repo(session: SessionDep) -> SQLAlchemyLocationRepository:
     return SQLAlchemyLocationRepository(session)
 
 
-def get_observation_repo(session: AsyncSession = Depends(get_session)):
+def get_observation_repo(session: SessionDep) -> SQLAlchemyRawObservationRepository:
     return SQLAlchemyRawObservationRepository(session)
 
 
-def get_weather_source():
+LocationRepoDep = Annotated[SQLAlchemyLocationRepository, Depends(get_location_repo)]
+ObservationRepoDep = Annotated[
+    SQLAlchemyRawObservationRepository, Depends(get_observation_repo)
+]
+
+
+def get_weather_source() -> OpenMeteoAdapter:
     settings = get_settings()
     return OpenMeteoAdapter(base_url=settings.open_meteo_base_url)
 
 
-def get_register_location_uc(
-    repo=Depends(get_location_repo),
-) -> RegisterLocationUseCase:
+WeatherSourceDep = Annotated[OpenMeteoAdapter, Depends(get_weather_source)]
+
+
+def get_register_location_uc(repo: LocationRepoDep) -> RegisterLocationUseCase:
     return RegisterLocationUseCase(repo)
 
 
-def get_get_location_uc(repo=Depends(get_location_repo)) -> GetLocationUseCase:
+def get_get_location_uc(repo: LocationRepoDep) -> GetLocationUseCase:
     return GetLocationUseCase(repo)
 
 
-def get_list_locations_uc(repo=Depends(get_location_repo)) -> ListLocationsUseCase:
+def get_list_locations_uc(repo: LocationRepoDep) -> ListLocationsUseCase:
     return ListLocationsUseCase(repo)
 
 
-def get_update_location_uc(repo=Depends(get_location_repo)) -> UpdateLocationUseCase:
+def get_update_location_uc(repo: LocationRepoDep) -> UpdateLocationUseCase:
     return UpdateLocationUseCase(repo)
 
 
-def get_delete_location_uc(repo=Depends(get_location_repo)) -> DeleteLocationUseCase:
+def get_delete_location_uc(repo: LocationRepoDep) -> DeleteLocationUseCase:
     return DeleteLocationUseCase(repo)
 
 
 def get_ingest_uc(
-    loc_repo=Depends(get_location_repo),
-    obs_repo=Depends(get_observation_repo),
-    weather_source=Depends(get_weather_source),
+    loc_repo: LocationRepoDep,
+    obs_repo: ObservationRepoDep,
+    weather_source: WeatherSourceDep,
 ) -> IngestObservationsUseCase:
     return IngestObservationsUseCase(loc_repo, obs_repo, weather_source)
 
 
-def get_list_observations_uc(
-    repo=Depends(get_observation_repo),
-) -> ListObservationsUseCase:
+def get_list_observations_uc(repo: ObservationRepoDep) -> ListObservationsUseCase:
     return ListObservationsUseCase(repo)
 
 
-def get_get_observation_uc(
-    repo=Depends(get_observation_repo),
-) -> GetObservationUseCase:
+def get_get_observation_uc(repo: ObservationRepoDep) -> GetObservationUseCase:
     return GetObservationUseCase(repo)
+
+
+RegisterLocationUCDep = Annotated[
+    RegisterLocationUseCase, Depends(get_register_location_uc)
+]
+GetLocationUCDep = Annotated[GetLocationUseCase, Depends(get_get_location_uc)]
+ListLocationsUCDep = Annotated[ListLocationsUseCase, Depends(get_list_locations_uc)]
+UpdateLocationUCDep = Annotated[
+    UpdateLocationUseCase, Depends(get_update_location_uc)
+]
+DeleteLocationUCDep = Annotated[
+    DeleteLocationUseCase, Depends(get_delete_location_uc)
+]
+IngestObservationsUCDep = Annotated[
+    IngestObservationsUseCase, Depends(get_ingest_uc)
+]
+ListObservationsUCDep = Annotated[
+    ListObservationsUseCase, Depends(get_list_observations_uc)
+]
+GetObservationUCDep = Annotated[
+    GetObservationUseCase, Depends(get_get_observation_uc)
+]

@@ -9,17 +9,12 @@ from ...application.dtos.location_dto import (
     LocationResponseDTO,
     LocationUpdateDTO,
 )
-from ...application.use_cases.delete_location import DeleteLocationUseCase
-from ...application.use_cases.get_location import GetLocationUseCase
-from ...application.use_cases.list_locations import ListLocationsUseCase
-from ...application.use_cases.register_location import RegisterLocationUseCase
-from ...application.use_cases.update_location import UpdateLocationUseCase
 from ..dependencies import (
-    get_delete_location_uc,
-    get_get_location_uc,
-    get_list_locations_uc,
-    get_register_location_uc,
-    get_update_location_uc,
+    DeleteLocationUCDep,
+    GetLocationUCDep,
+    ListLocationsUCDep,
+    RegisterLocationUCDep,
+    UpdateLocationUCDep,
     require_api_key,
 )
 
@@ -28,8 +23,8 @@ router = APIRouter(prefix="/api/v1/locations", tags=["locations"])
 
 @router.get("", response_model=list[LocationResponseDTO])
 async def list_locations(
+    uc: ListLocationsUCDep,
     active_only: bool = False,
-    uc: ListLocationsUseCase = Depends(get_list_locations_uc),
 ) -> list[LocationResponseDTO]:
     return await uc.execute(active_only=active_only)
 
@@ -42,7 +37,7 @@ async def list_locations(
 )
 async def create_location(
     dto: LocationCreateDTO,
-    uc: RegisterLocationUseCase = Depends(get_register_location_uc),
+    uc: RegisterLocationUCDep,
 ) -> LocationResponseDTO:
     return await uc.execute(dto)
 
@@ -50,7 +45,7 @@ async def create_location(
 @router.get("/{location_id}", response_model=LocationResponseDTO)
 async def get_location(
     location_id: UUID,
-    uc: GetLocationUseCase = Depends(get_get_location_uc),
+    uc: GetLocationUCDep,
 ) -> LocationResponseDTO:
     return await uc.execute(location_id)
 
@@ -63,7 +58,7 @@ async def get_location(
 async def update_location(
     location_id: UUID,
     dto: LocationUpdateDTO,
-    uc: UpdateLocationUseCase = Depends(get_update_location_uc),
+    uc: UpdateLocationUCDep,
 ) -> LocationResponseDTO:
     return await uc.execute(location_id, dto)
 
@@ -75,6 +70,6 @@ async def update_location(
 )
 async def delete_location(
     location_id: UUID,
-    uc: DeleteLocationUseCase = Depends(get_delete_location_uc),
+    uc: DeleteLocationUCDep,
 ) -> None:
     await uc.execute(location_id)

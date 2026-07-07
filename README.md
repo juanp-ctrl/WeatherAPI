@@ -19,6 +19,7 @@ A production-grade weather data ingestion and processing system built with two i
   - [Prerequisites](#prerequisites)
   - [Running with Docker Compose](#running-with-docker-compose)
   - [Running Locally (without Docker)](#running-locally-without-docker)
+  - [AI Agent Skills (Library Skills)](#ai-agent-skills-library-skills)
 - [API Reference](#api-reference)
   - [Ingestion Service API](#ingestion-service-api)
   - [Processing Service API](#processing-service-api)
@@ -271,6 +272,31 @@ pip install -r requirements.txt
 alembic upgrade head
 uvicorn src.interface.main:app --port 8001 --reload
 ```
+
+### AI Agent Skills (Library Skills)
+
+This repo uses [Library Skills](https://library-skills.io/) to keep AI coding agents (Cursor, Claude, etc.) up to date on how to use the libraries this project depends on (e.g. FastAPI). Skills are symlinked into `.agents/skills/` inside each service, pointing at docs bundled with the installed package in its `.venv`.
+
+Because each service manages its own virtual environment, **run `library-skills` from inside each service directory**, after installing dependencies:
+
+```bash
+# Ingestion service
+cd ingestion-service
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvx library-skills --all --yes
+
+# Processing service
+cd ../processing-service
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvx library-skills --all --yes
+```
+
+- `--all` selects every newly discovered skill; `--yes` skips the interactive prompts (required when running non-interactively, e.g. in scripts or automation).
+- Since `.venv/` is gitignored, the committed `.agents/skills/*` symlinks will appear broken until you install dependencies locally — running the commands above will resolve them.
+- To check whether skills are installed and up to date without changing anything, run `uvx library-skills --check` from within a service directory.
+- Running plain `uvx library-skills` (no flags) from a service directory opens an interactive menu to select specific skills instead.
 
 ### Demo with Postman
 

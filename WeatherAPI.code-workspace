@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"name": "root",
+			"path": "."
+		},
+		{
+			"name": "ingestion-service",
+			"path": "ingestion-service"
+		},
+		{
+			"name": "processing-service",
+			"path": "processing-service"
+		}
+	],
+	"settings": {}
+}
