@@ -15,6 +15,7 @@ A production-grade weather data ingestion and processing system built with two i
   - [Processing Service](#processing-service)
 - [Technology Stack](#technology-stack)
 - [Project Structure](#project-structure)
+  - [A Note on Organizational Patterns](#a-note-on-organizational-patterns)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Running with Docker Compose](#running-with-docker-compose)
@@ -60,6 +61,7 @@ Open-Meteo API
 ```
 
 **Key behaviors:**
+
 - Ingestion service polls Open-Meteo every **15 minutes** for all active locations.
 - Processing service runs every **5 minutes**, picking up new raw observations via a high-water mark watermark strategy.
 - Both cycles can also be triggered **manually via REST** for testing.
@@ -74,7 +76,7 @@ The codebase follows **Clean Architecture** strictly. Each service is organized 
 
 ```
 ┌────────────────────────────────────────────────┐
-│                  Interface Layer                │  FastAPI routers, dependency injection
+│                  Interface Layer               │  FastAPI routers, dependency injection
 ├────────────────────────────────────────────────┤
 │               Application Layer                │  Use cases (orchestration only)
 ├────────────────────────────────────────────────┤
@@ -87,6 +89,7 @@ The codebase follows **Clean Architecture** strictly. Each service is organized 
 **Dependency rule:** inner layers never import from outer layers. The domain knows nothing about SQLAlchemy, FastAPI, or HTTP — only pure Python dataclasses and `Protocol` interfaces.
 
 **Key patterns applied:**
+
 - **Repository Pattern** — domain defines `Protocol` contracts; SQLAlchemy implementations live in infrastructure. Swapping databases requires zero domain changes.
 - **Adapter Pattern** — `OpenMeteoAdapter` implements the `WeatherDataSource` port, decoupling the domain from the external API provider.
 - **Dependency Injection** — FastAPI's `Depends()` wires repositories and use cases at request time, without a DI container.
@@ -101,6 +104,7 @@ The codebase follows **Clean Architecture** strictly. Each service is organized 
 Responsible for managing locations and collecting raw weather data.
 
 **Responsibilities:**
+
 - CRUD operations for monitored locations (lat/lon, timezone, active flag)
 - Periodic polling of Open-Meteo for each active location (background asyncio task)
 - Storing raw, immutable observations in the `ingestion` schema
@@ -113,6 +117,7 @@ Responsible for managing locations and collecting raw weather data.
 Responsible for turning raw weather data into actionable insights.
 
 **Responsibilities:**
+
 - Fetching unprocessed raw observations from the ingestion service via HTTP (paginated)
 - Computing derived metrics: **heat index**, **wind chill**, and **feels-like temperature**
 - Evaluating configurable **processing rules** (threshold-based, data-driven)
@@ -126,19 +131,19 @@ Responsible for turning raw weather data into actionable insights.
 
 ## Technology Stack
 
-| Layer | Technology | Rationale |
-|---|---|---|
-| API Framework | FastAPI | Async-native, automatic OpenAPI docs, first-class DI |
-| ORM | SQLAlchemy 2 (async) | Mature, async support, explicit query control |
-| Driver | asyncpg | Fastest PostgreSQL async driver for Python |
-| Database | PostgreSQL 16 | ACID, rich constraint support, schema isolation |
-| Migrations | Alembic | Version-controlled schema changes |
-| HTTP Client | httpx | Async HTTP for inter-service communication |
-| Config | pydantic-settings | Type-safe, env-var-driven configuration |
-| Testing | pytest + pytest-asyncio | Async test support; in-memory fakes strategy |
-| Containerization | Docker + Docker Compose | Single-command local stack |
-| Weather Data | Open-Meteo | Free, no API key, production-grade reliability |
-| IaC (planned) | AWS CDK (TypeScript) | Reproducible cloud infrastructure |
+| Layer            | Technology              | Rationale                                            |
+| ---------------- | ----------------------- | ---------------------------------------------------- |
+| API Framework    | FastAPI                 | Async-native, automatic OpenAPI docs, first-class DI |
+| ORM              | SQLAlchemy 2 (async)    | Mature, async support, explicit query control        |
+| Driver           | asyncpg                 | Fastest PostgreSQL async driver for Python           |
+| Database         | PostgreSQL 16           | ACID, rich constraint support, schema isolation      |
+| Migrations       | Alembic                 | Version-controlled schema changes                    |
+| HTTP Client      | httpx                   | Async HTTP for inter-service communication           |
+| Config           | pydantic-settings       | Type-safe, env-var-driven configuration              |
+| Testing          | pytest + pytest-asyncio | Async test support; in-memory fakes strategy         |
+| Containerization | Docker + Docker Compose | Single-command local stack                           |
+| Weather Data     | Open-Meteo              | Free, no API key, production-grade reliability       |
+| IaC (planned)    | AWS CDK (TypeScript)    | Reproducible cloud infrastructure                    |
 
 ---
 
@@ -205,6 +210,14 @@ WeatherAPI/
         └── test_*.py            # Unit tests for processing logic
 ```
 
+### A Note on Organizational Patterns
+
+For an API this small — a handful of entities per service — a plain **package by layer** structure (grouping files by technical type: `api/routes/`, `models.py`, `crud.py`, `core/`), the pattern used by the official [`full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template), would have been more than sufficient.
+
+Instead, each service follows **Clean Architecture** (`domain/ → application/ → infrastructure/ → interface/`), with every layer split into one file per concept (`entities/location.py`, `entities/raw_observation.py`, `repositories/location_repository.py`, ...) instead of shared `models.py` / `crud.py` catch-alls. Combined with a top level split into two independently deployable, domain-named services (`ingestion-service/`, `processing-service/` — rather than technical folders like `api/` or `core/`), the result leans closer to a [**package by feature**](https://github.com/zhanymkanov/fastapi-best-practices) organization, where the folder tree "screams" the business domain rather than the framework used to build it.
+
+This was a deliberate choice, not a necessity: the intent was to showcase how flexible FastAPI is regardless of the folder convention adopted, and to structure the codebase as if it already had to support many more domains — so that adding a new one (e.g. `forecasts/`, `alerting-channels/`) means dropping in a new self-contained module, not touching a shared `models.py` — even though, at the project's current size, the simpler pattern would have worked just as well.
+
 ---
 
 ## Getting Started
@@ -229,6 +242,7 @@ docker compose up --build
 ```
 
 This will:
+
 1. Start a PostgreSQL 16 container
 2. Create the `ingestion` and `processing` schemas
 3. Run Alembic migrations for both services
@@ -236,11 +250,11 @@ This will:
 
 **Services will be available at:**
 
-| Service | URL | Interactive Docs |
-|---|---|---|
-| Ingestion Service | http://localhost:8000 | http://localhost:8000/docs |
+| Service            | URL                   | Interactive Docs           |
+| ------------------ | --------------------- | -------------------------- |
+| Ingestion Service  | http://localhost:8000 | http://localhost:8000/docs |
 | Processing Service | http://localhost:8001 | http://localhost:8001/docs |
-| Health checks | `/health` on each | — |
+| Health checks      | `/health` on each     | —                          |
 
 ### Running Migrations Manually
 
@@ -332,15 +346,16 @@ Read endpoints are open (no authentication required). In production, replace the
 
 #### Locations
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/locations` | No | List all active locations |
-| `POST` | `/locations` | Yes | Register a new location |
-| `GET` | `/locations/{id}` | No | Get a location by ID |
-| `PUT` | `/locations/{id}` | Yes | Update a location |
-| `DELETE` | `/locations/{id}` | Yes | Soft-delete a location |
+| Method   | Endpoint          | Auth | Description               |
+| -------- | ----------------- | ---- | ------------------------- |
+| `GET`    | `/locations`      | No   | List all active locations |
+| `POST`   | `/locations`      | Yes  | Register a new location   |
+| `GET`    | `/locations/{id}` | No   | Get a location by ID      |
+| `PUT`    | `/locations/{id}` | Yes  | Update a location         |
+| `DELETE` | `/locations/{id}` | Yes  | Soft-delete a location    |
 
 **Create a location:**
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/locations \
   -H "Content-Type: application/json" \
@@ -355,13 +370,14 @@ curl -X POST http://localhost:8000/api/v1/locations \
 
 #### Observations
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/observations` | No | List raw observations (`limit`, `offset`, `since`, `location_id`) |
-| `GET` | `/observations/{id}` | No | Get a single raw observation |
-| `POST` | `/observations/ingest` | Yes | Manually trigger an ingestion cycle |
+| Method | Endpoint               | Auth | Description                                                       |
+| ------ | ---------------------- | ---- | ----------------------------------------------------------------- |
+| `GET`  | `/observations`        | No   | List raw observations (`limit`, `offset`, `since`, `location_id`) |
+| `GET`  | `/observations/{id}`   | No   | Get a single raw observation                                      |
+| `POST` | `/observations/ingest` | Yes  | Manually trigger an ingestion cycle                               |
 
 **List observations since a timestamp:**
+
 ```bash
 curl "http://localhost:8000/api/v1/observations?since=2026-06-30T00:00:00Z&limit=50"
 ```
@@ -374,14 +390,15 @@ curl "http://localhost:8000/api/v1/observations?since=2026-06-30T00:00:00Z&limit
 
 #### Processing Rules
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/rules` | No | List all rules |
-| `POST` | `/rules` | Yes | Create a rule |
-| `PUT` | `/rules/{id}` | Yes | Update a rule |
-| `DELETE` | `/rules/{id}` | Yes | Delete a rule |
+| Method   | Endpoint      | Auth | Description    |
+| -------- | ------------- | ---- | -------------- |
+| `GET`    | `/rules`      | No   | List all rules |
+| `POST`   | `/rules`      | Yes  | Create a rule  |
+| `PUT`    | `/rules/{id}` | Yes  | Update a rule  |
+| `DELETE` | `/rules/{id}` | Yes  | Delete a rule  |
 
 **Create a rule:**
+
 ```bash
 curl -X POST http://localhost:8001/api/v1/rules \
   -H "Content-Type: application/json" \
@@ -400,24 +417,24 @@ Valid operators: `>`, `>=`, `<`, `<=`, `==`
 
 #### Processed Observations
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/processed` | No | List processed observations |
-| `GET` | `/processed/{id}` | No | Get a processed observation with derived metrics |
+| Method | Endpoint          | Auth | Description                                      |
+| ------ | ----------------- | ---- | ------------------------------------------------ |
+| `GET`  | `/processed`      | No   | List processed observations                      |
+| `GET`  | `/processed/{id}` | No   | Get a processed observation with derived metrics |
 
 #### Alerts
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/alerts` | No | List alerts (`severity`, `acknowledged` filters) |
-| `GET` | `/alerts/{id}` | No | Get a single alert |
-| `PATCH` | `/alerts/{id}/acknowledge` | Yes | Acknowledge an alert |
+| Method  | Endpoint                   | Auth | Description                                      |
+| ------- | -------------------------- | ---- | ------------------------------------------------ |
+| `GET`   | `/alerts`                  | No   | List alerts (`severity`, `acknowledged` filters) |
+| `GET`   | `/alerts/{id}`             | No   | Get a single alert                               |
+| `PATCH` | `/alerts/{id}/acknowledge` | Yes  | Acknowledge an alert                             |
 
 #### Processing Control
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `POST` | `/process` | Yes | Manually trigger a processing cycle |
+| Method | Endpoint   | Auth | Description                         |
+| ------ | ---------- | ---- | ----------------------------------- |
+| `POST` | `/process` | Yes  | Manually trigger a processing cycle |
 
 ---
 
@@ -521,12 +538,12 @@ cd processing-service && pytest tests/unit -v
 
 **Test coverage highlights (ingestion service):**
 
-| Test file | Scenarios covered |
-|---|---|
+| Test file                     | Scenarios covered                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `test_ingest_observations.py` | Fetches only active locations, stores results, ignores duplicates (idempotency), handles empty location list, records adapter errors |
-| `test_list_observations.py` | Returns all observations, pagination, filter by location, filter by `since` |
-| `test_register_location.py` | Creates with defaults, persists in repo, custom timezone |
-| `test_locations.py` | Get found/not found (404), list active only, update, soft delete |
+| `test_list_observations.py`   | Returns all observations, pagination, filter by location, filter by `since`                                                          |
+| `test_register_location.py`   | Creates with defaults, persists in repo, custom timezone                                                                             |
+| `test_locations.py`           | Get found/not found (404), list active only, update, soft delete                                                                     |
 
 **Testing philosophy:** fakes are defined in `tests/unit/fakes.py` and implement the same `Protocol` contracts as the real SQLAlchemy repositories. This means the test suite validates the exact same use case code that runs in production — with zero infrastructure dependencies.
 
@@ -536,19 +553,19 @@ cd processing-service && pytest tests/unit -v
 
 All architectural decisions are documented as Architecture Decision Records in [`docs/adr/`](docs/adr/). Summary:
 
-| ADR | Decision | Key Reason |
-|---|---|---|
-| [0001](docs/adr/0001-use-fastapi.md) | FastAPI for both services | Async-native, first-class DI, automatic OpenAPI |
-| [0002](docs/adr/0002-use-sqlalchemy.md) | SQLAlchemy 2 + asyncpg + Alembic | Mature async ORM, version-controlled migrations |
-| [0003](docs/adr/0003-split-into-two-microservices.md) | Two microservices | Clear separation of ingestion vs. processing concerns |
-| [0004](docs/adr/0004-rest-communication-instead-of-messaging.md) | REST HTTP polling between services | Simplicity; SQS planned for future |
-| [0005](docs/adr/0005-postgresql-as-primary-database.md) | PostgreSQL, separate schemas | ACID guarantees, schema isolation without two DBs |
-| [0006](docs/adr/0006-docker-compose-for-local-development.md) | Docker Compose for local dev | Single-command reproducible environment |
-| [0007](docs/adr/0007-aws-ecs-fargate.md) | AWS ECS Fargate for production | Serverless containers, no EC2 management |
-| [0008](docs/adr/0008-aws-cdk-for-infrastructure.md) | AWS CDK (TypeScript) for IaC | Type-safe, reproducible cloud infrastructure |
-| [0009](docs/adr/0009-open-meteo-as-external-provider.md) | Open-Meteo as weather provider | Free, no API key, global coverage, adapter pattern |
-| [0010](docs/adr/0010-repository-pattern.md) | Repository Pattern | Decouples domain from persistence; enables fakes |
-| [0011](docs/adr/0011-anti-join-for-unprocessed-tracking.md) | Watermark + anti-join for unprocessed tracking | Efficient, stateless progress tracking |
+| ADR                                                              | Decision                                       | Key Reason                                            |
+| ---------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------- |
+| [0001](docs/adr/0001-use-fastapi.md)                             | FastAPI for both services                      | Async-native, first-class DI, automatic OpenAPI       |
+| [0002](docs/adr/0002-use-sqlalchemy.md)                          | SQLAlchemy 2 + asyncpg + Alembic               | Mature async ORM, version-controlled migrations       |
+| [0003](docs/adr/0003-split-into-two-microservices.md)            | Two microservices                              | Clear separation of ingestion vs. processing concerns |
+| [0004](docs/adr/0004-rest-communication-instead-of-messaging.md) | REST HTTP polling between services             | Simplicity; SQS planned for future                    |
+| [0005](docs/adr/0005-postgresql-as-primary-database.md)          | PostgreSQL, separate schemas                   | ACID guarantees, schema isolation without two DBs     |
+| [0006](docs/adr/0006-docker-compose-for-local-development.md)    | Docker Compose for local dev                   | Single-command reproducible environment               |
+| [0007](docs/adr/0007-aws-ecs-fargate.md)                         | AWS ECS Fargate for production                 | Serverless containers, no EC2 management              |
+| [0008](docs/adr/0008-aws-cdk-for-infrastructure.md)              | AWS CDK (TypeScript) for IaC                   | Type-safe, reproducible cloud infrastructure          |
+| [0009](docs/adr/0009-open-meteo-as-external-provider.md)         | Open-Meteo as weather provider                 | Free, no API key, global coverage, adapter pattern    |
+| [0010](docs/adr/0010-repository-pattern.md)                      | Repository Pattern                             | Decouples domain from persistence; enables fakes      |
+| [0011](docs/adr/0011-anti-join-for-unprocessed-tracking.md)      | Watermark + anti-join for unprocessed tracking | Efficient, stateless progress tracking                |
 
 ---
 
@@ -567,6 +584,7 @@ Internet → ALB → ECS Fargate (ingestion-service)
 ```
 
 **Planned CDK stacks:**
+
 - `NetworkStack` — VPC, public subnets (no NAT to minimize cost)
 - `DatabaseStack` — Aurora Serverless v2, parameter groups
 - `ServiceStack` — ECS Cluster, Task Definitions, Services, ALB
@@ -592,20 +610,20 @@ Internet → ALB → ECS Fargate (ingestion-service)
 
 ## Environment Variables Reference
 
-| Variable | Service | Default | Description |
-|---|---|---|---|
-| `API_KEY` | Both | — | Secret for write endpoint authentication |
-| `DATABASE_URL` | Both | — | asyncpg connection string |
-| `DATABASE_POOL_SIZE` | Both | `5` | SQLAlchemy connection pool size |
-| `DATABASE_MAX_OVERFLOW` | Both | `5` | Max connections beyond pool size |
-| `LOG_LEVEL` | Both | `INFO` | Python log level |
-| `INGESTION_SCHEMA` | Ingestion | `ingestion` | PostgreSQL schema name |
-| `OPEN_METEO_BASE_URL` | Ingestion | `https://api.open-meteo.com` | Weather API base URL |
-| `INGESTION_INTERVAL_SECONDS` | Ingestion | `900` | Polling interval (15 min) |
-| `PROCESSING_SCHEMA` | Processing | `processing` | PostgreSQL schema name |
-| `INGESTION_SERVICE_URL` | Processing | `http://localhost:8000` | Ingestion service base URL |
-| `PROCESSING_INTERVAL_SECONDS` | Processing | `300` | Processing interval (5 min) |
+| Variable                      | Service    | Default                      | Description                              |
+| ----------------------------- | ---------- | ---------------------------- | ---------------------------------------- |
+| `API_KEY`                     | Both       | —                            | Secret for write endpoint authentication |
+| `DATABASE_URL`                | Both       | —                            | asyncpg connection string                |
+| `DATABASE_POOL_SIZE`          | Both       | `5`                          | SQLAlchemy connection pool size          |
+| `DATABASE_MAX_OVERFLOW`       | Both       | `5`                          | Max connections beyond pool size         |
+| `LOG_LEVEL`                   | Both       | `INFO`                       | Python log level                         |
+| `INGESTION_SCHEMA`            | Ingestion  | `ingestion`                  | PostgreSQL schema name                   |
+| `OPEN_METEO_BASE_URL`         | Ingestion  | `https://api.open-meteo.com` | Weather API base URL                     |
+| `INGESTION_INTERVAL_SECONDS`  | Ingestion  | `900`                        | Polling interval (15 min)                |
+| `PROCESSING_SCHEMA`           | Processing | `processing`                 | PostgreSQL schema name                   |
+| `INGESTION_SERVICE_URL`       | Processing | `http://localhost:8000`      | Ingestion service base URL               |
+| `PROCESSING_INTERVAL_SECONDS` | Processing | `300`                        | Processing interval (5 min)              |
 
 ---
 
-*Built by Juan Pablo Jiménez — [linkedin.com/in/juanpablojimenezheredia](https://linkedin.com/in/juanpablojimenezheredia)*
+_Built by Juan Pablo Jiménez — [linkedin.com/in/juanpablojimenezheredia](https://linkedin.com/in/juanpablojimenezheredia)_
