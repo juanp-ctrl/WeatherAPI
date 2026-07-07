@@ -21,7 +21,7 @@ from ..dependencies import (
 router = APIRouter(prefix="/api/v1/observations", tags=["observations"])
 
 
-@router.get("", response_model=ObservationListResponseDTO)
+@router.get("")
 async def list_observations(
     uc: ListObservationsUCDep,
     location_id: Annotated[UUID | None, Query()] = None,
@@ -34,7 +34,7 @@ async def list_observations(
     )
 
 
-@router.get("/{observation_id}", response_model=ObservationResponseDTO)
+@router.get("/{observation_id}")
 async def get_observation(
     observation_id: UUID,
     uc: GetObservationUCDep,
@@ -44,7 +44,6 @@ async def get_observation(
 
 @router.post(
     "/ingest",
-    response_model=IngestResultDTO,
     dependencies=[Depends(require_api_key)],
 )
 async def trigger_ingestion(

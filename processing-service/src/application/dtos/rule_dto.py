@@ -7,13 +7,12 @@ from pydantic import BaseModel, Field
 
 
 class RuleCreateDTO(BaseModel):
-    metric: str = Field(..., max_length=64)
-    operator: str = Field(..., pattern=r"^(>|>=|<|<=|==)$")
+    metric: str = Field(max_length=64)
+    operator: str = Field(pattern=r"^(>|>=|<|<=|==)$")
     threshold: float
-    severity: str = Field(..., pattern=r"^(LOW|MEDIUM|HIGH|CRITICAL)$")
-    alert_type: str = Field(..., max_length=64)
+    severity: str = Field(pattern=r"^(LOW|MEDIUM|HIGH|CRITICAL)$")
+    alert_type: str = Field(max_length=64)
     message_template: str = Field(
-        ...,
         description="Template with {value} and {threshold} placeholders",
     )
     is_active: bool = True

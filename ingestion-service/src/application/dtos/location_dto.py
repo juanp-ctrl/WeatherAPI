@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 
 
 class LocationCreateDTO(BaseModel):
-    name: str = Field(..., max_length=255)
-    latitude: float = Field(..., ge=-90.0, le=90.0)
-    longitude: float = Field(..., ge=-180.0, le=180.0)
+    name: str = Field(max_length=255)
+    latitude: float = Field(ge=-90.0, le=90.0)
+    longitude: float = Field(ge=-180.0, le=180.0)
     timezone: str = Field(default="UTC", max_length=64)
 
 

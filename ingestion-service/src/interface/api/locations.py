@@ -21,7 +21,7 @@ from ..dependencies import (
 router = APIRouter(prefix="/api/v1/locations", tags=["locations"])
 
 
-@router.get("", response_model=list[LocationResponseDTO])
+@router.get("")
 async def list_locations(
     uc: ListLocationsUCDep,
     active_only: bool = False,
@@ -31,7 +31,6 @@ async def list_locations(
 
 @router.post(
     "",
-    response_model=LocationResponseDTO,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_api_key)],
 )
@@ -42,7 +41,7 @@ async def create_location(
     return await uc.execute(dto)
 
 
-@router.get("/{location_id}", response_model=LocationResponseDTO)
+@router.get("/{location_id}")
 async def get_location(
     location_id: UUID,
     uc: GetLocationUCDep,
@@ -52,7 +51,6 @@ async def get_location(
 
 @router.put(
     "/{location_id}",
-    response_model=LocationResponseDTO,
     dependencies=[Depends(require_api_key)],
 )
 async def update_location(

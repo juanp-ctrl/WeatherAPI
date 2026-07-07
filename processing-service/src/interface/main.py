@@ -4,6 +4,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 
 from ..application.use_cases.process_observations import ProcessObservationsUseCase
@@ -27,8 +28,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def _processing_loop(interval_seconds: int, ingestion_service_url: str) -> None:
-    ingestion_client = HttpIngestionClient(base_url=ingestion_service_url)
+async def _processing_loop(
+    interval_seconds: int,
+    ingestion_service_url: str,
+    http_client: httpx.AsyncClient,
+) -> None:
+    ingestion_client = HttpIngestionClient(client=http_client, base_url=ingestion_service_url)
     maker = get_session_maker()
 
     while True:
@@ -65,10 +70,14 @@ async def lifespan(app: FastAPI):
     init_engine(settings)
     logger.info("Database engine initialised")
 
+    http_client = httpx.AsyncClient(timeout=10.0)
+    app.state.http_client = http_client
+
     scheduler_task = asyncio.create_task(
         _processing_loop(
             settings.processing_interval_seconds,
             settings.ingestion_service_url,
+            http_client,
         )
     )
     logger.info(
@@ -83,6 +92,7 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
+    await http_client.aclose()
     await dispose_engine()
     logger.info("Shutdown complete")
 

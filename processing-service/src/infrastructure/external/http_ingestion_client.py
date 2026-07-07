@@ -12,9 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 class HttpIngestionClient:
-    def __init__(self, base_url: str, timeout: float = 10.0) -> None:
+    def __init__(self, client: httpx.AsyncClient, base_url: str) -> None:
+        self._client = client
         self._base_url = base_url.rstrip("/")
-        self._timeout = timeout
 
     async def get_observations(
         self,
@@ -27,9 +27,8 @@ class HttpIngestionClient:
 
         url = f"{self._base_url}/api/v1/observations"
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
+            response = await self._client.get(url, params=params)
+            response.raise_for_status()
         except httpx.HTTPError as exc:
             logger.error("Failed to fetch observations from ingestion-service: %s", exc)
             return []
